@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<title>Rank Agent</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --text:#16191d; --muted:#5d6672; --line:#e2e6ea;
+    --brand:#0f766e; --brand-ink:#fff; --warn:#b42318; --code:#eef1f4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#101214; --card:#181b1f; --text:#eceff2; --muted:#9aa4af; --line:#2a2f35;
+           --brand:#2dd4bf; --brand-ink:#04211e; --warn:#ff8a80; --code:#22272d; }
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+  main{max-width:720px;margin:0 auto}
+  h1{font-size:1.35rem;margin:4px 0 2px}
+  .sub{color:var(--muted);margin:0 0 16px;font-size:.95rem}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+  .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--code);padding:4px;border-radius:12px;margin-bottom:14px}
+  .tabs button{border:0;background:transparent;color:var(--muted);padding:10px 4px;border-radius:9px;font:inherit;font-size:.9rem;font-weight:600;min-height:44px}
+  .tabs button[aria-selected="true"]{background:var(--card);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.15)}
+  label{display:block;font-size:.85rem;font-weight:600;margin:12px 0 4px}
+  label:first-child{margin-top:0}
+  input,textarea{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--bg);
+       border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+  textarea{min-height:110px;resize:vertical}
+  input:focus,textarea:focus{outline:2px solid var(--brand);outline-offset:1px}
+  .hint{color:var(--muted);font-size:.82rem;margin:4px 0 0}
+  .primary{width:100%;margin-top:14px;min-height:48px;border:0;border-radius:12px;background:var(--brand);
+       color:var(--brand-ink);font:inherit;font-weight:700}
+  .primary:disabled{opacity:.55}
+  .ghost{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;
+       padding:9px 14px;font:inherit;font-size:.9rem;min-height:44px}
+  .row{display:flex;gap:8px;margin-bottom:10px}
+  .status{color:var(--muted);font-size:.92rem}
+  .status b{color:var(--text)}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--brand);
+        border-radius:50%;animation:s 0.8s linear infinite;vertical-align:-2px;margin-right:8px}
+  @keyframes s{to{transform:rotate(360deg)}}
+  .err{color:var(--warn);font-weight:600}
+  .hidden{display:none!important}
+  /* report */
+  #report{overflow-wrap:anywhere}
+  #report h1{font-size:1.25rem} #report h2{font-size:1.1rem;margin-top:1.4em} #report h3{font-size:1rem}
+  #report table{display:block;overflow-x:auto;border-collapse:collapse;font-size:.88rem}
+  #report th,#report td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+  #report pre{background:var(--code);padding:10px;border-radius:10px;overflow-x:auto;font-size:.82rem}
+  #report code{background:var(--code);padding:1px 5px;border-radius:5px;font-size:.88em}
+  #report pre code{padding:0;background:none}
+  #report a{color:var(--brand)}
+  details summary{cursor:pointer;color:var(--muted);font-size:.9rem;min-height:32px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Rank Agent</h1>
+  <p class="sub">Rank higher on Google and get cited by AI search.</p>
+
+  <div class="card">
+    <label for="code">Access code</label>
+    <input id="code" type="password" autocomplete="current-password" placeholder="Your access code">
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Tools">
+    <button role="tab" aria-selected="true" data-tab="audit">Audit</button>
+    <button role="tab" aria-selected="false" data-tab="research">Research</button>
+    <button role="tab" aria-selected="false" data-tab="rewrite">Rewrite</button>
+    <button role="tab" aria-selected="false" data-tab="track">Track</button>
+  </div>
+
+  <form id="form" class="card" novalidate>
+    <div data-for="audit">
+      <label for="a-url">Website URL</label>
+      <input id="a-url" type="url" inputmode="url" autocapitalize="none" placeholder="yourbusiness.com">
+      <p class="hint">Checks technical SEO, schema, AI-bot access, llms.txt, and key pages. Takes 1 to 2 minutes.</p>
+    </div>
+    <div data-for="research" class="hidden">
+      <label for="r-biz">What does the business do, and where?</label>
+      <textarea id="r-biz" placeholder="Family dental clinic in Ikeja, Lagos. Implants, whitening, braces."></textarea>
+      <label for="r-url">Website (optional)</label>
+      <input id="r-url" type="url" inputmode="url" autocapitalize="none" placeholder="yourbusiness.com">
+      <p class="hint">Finds keywords, the questions people ask AI, competitors, and a content plan.</p>
+    </div>
+    <div data-for="rewrite" class="hidden">
+      <label for="w-url">Page URL to improve</label>
+      <input id="w-url" type="url" inputmode="url" autocapitalize="none" placeholder="yourbusiness.com/services">
+      <p class="hint">Gets titles, meta descriptions, headings, an AI-friendly summary, FAQs, and schema code.</p>
+    </div>
+    <div data-for="track" class="hidden">
+      <label for="t-brand">Brand name</label>
+      <input id="t-brand" placeholder="Acme Dental">
+      <label for="t-domain">Domain</label>
+      <input id="t-domain" inputmode="url" autocapitalize="none" placeholder="acmedental.com">
+      <label for="t-prompts">Questions your customers ask (one per line, up to 8)</label>
+      <textarea id="t-prompts" placeholder="Best family dentist in Lagos?&#10;Who does teeth whitening near Ikeja?"></textarea>
+      <p class="hint">Asks an AI with live web search and checks whether you are mentioned or cited.</p>
+    </div>
+    <button id="go" class="primary" type="submit">Run audit</button>
+  </form>
+
+  <div id="run" class="card hidden">
+    <div id="status" class="status"></div>
+  </div>
+
+  <div id="out" class="card hidden">
+    <div class="row">
+      <button class="ghost" id="copy" type="button">Copy</button>
+      <button class="ghost" id="dl" type="button">Download</button>
+    </div>
+    <div id="report"></div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var tab = "audit", timer = null, lastMd = "";
+  var LABEL = { audit: "Run audit", research: "Run research", rewrite: "Rewrite page", track: "Check AI visibility" };
+
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; }
+  $("code").value = store("ra_code") || "";
+  $("code").addEventListener("change", function () { store("ra_code", $("code").value); });
+
+  document.querySelectorAll(".tabs button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      tab = b.dataset.tab;
+      document.querySelectorAll(".tabs button").forEach(function (x) { x.setAttribute("aria-selected", x === b); });
+      document.querySelectorAll("[data-for]").forEach(function (d) { d.classList.toggle("hidden", d.dataset["for"] !== tab); });
+      $("go").textContent = LABEL[tab];
+    });
+  });
+
+  function status(html) { $("run").classList.remove("hidden"); $("status").innerHTML = html; }
+  function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+  function fail(msg) { clearInterval(timer); $("go").disabled = false; status('<span class="err">' + esc(msg) + "</span>"); }
+  function headers() { return { "Content-Type": "application/json", "X-Access-Code": $("code").value }; }
+
+  function payload() {
+    if (tab === "audit") return { mode: tab, url: $("a-url").value };
+    if (tab === "rewrite") return { mode: tab, url: $("w-url").value };
+    if (tab === "research") return { mode: tab, business: $("r-biz").value, url: $("r-url").value };
+    return { mode: tab, brand: $("t-brand").value, domain: $("t-domain").value, prompts: $("t-prompts").value };
+  }
+
+  $("form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    store("ra_code", $("code").value);
+    $("out").classList.add("hidden");
+    $("go").disabled = true;
+    status('<span class="spin"></span>Starting...');
+    fetch("/api/start", { method: "POST", headers: headers(), body: JSON.stringify(payload()) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) return fail(res.j.error || "Something went wrong");
+        poll(res.j.id);
+      })
+      .catch(function () { fail("Network error. Check your connection and try again."); });
+  });
+
+  function poll(id) {
+    var misses = 0;
+    clearInterval(timer);
+    timer = setInterval(function () {
+      fetch("/api/status/" + id, { headers: headers() })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          misses = 0;
+          if (!res.ok) return fail(res.j.error || "Lost the job. Please run it again.");
+          var j = res.j;
+          if (j.status === "running") {
+            var last = j.progress.length ? j.progress[j.progress.length - 1] : "Working...";
+            status('<span class="spin"></span><b>Working.</b> ' + esc(last) + "<br>Keep this page open.");
+          } else if (j.status === "error") {
+            fail(j.error || "The run failed.");
+          } else {
+            clearInterval(timer);
+            $("go").disabled = false;
+            status("Done.");
+            show(j.report || "(empty report)");
+          }
+        })
+        .catch(function () { if (++misses > 5) fail("Connection lost. Please run it again."); });
+    }, 2500);
+  }
+
+  function show(md) {
+    lastMd = md;
+    var html = window.marked ? marked.parse(md) : "<pre>" + esc(md) + "</pre>";
+    $("report").innerHTML = window.DOMPurify ? DOMPurify.sanitize(html) : "<pre>" + esc(md) + "</pre>";
+    $("out").classList.remove("hidden");
+    $("out").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  $("copy").addEventListener("click", function () {
+    var b = $("copy");
+    (navigator.clipboard ? navigator.clipboard.writeText(lastMd) : Promise.reject())
+      .then(function () { b.textContent = "Copied"; }, function () { b.textContent = "Copy failed"; })
+      .then(function () { setTimeout(function () { b.textContent = "Copy"; }, 1500); });
+  });
+
+  $("dl").addEventListener("click", function () {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([lastMd], { type: "text/markdown" }));
+    a.download = "rank-agent-" + tab + ".md";
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+})();
+</script>
+</body>
+</html>
