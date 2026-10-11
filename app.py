@@ -1,4 +1,4 @@
-"""Rank Agent web app: mobile-friendly UI + small JSON API with background jobs."""
+"""Rank Agent web app: mobile-friendly UI + small JSON API with background jobs (Gemini free tier)."""
 import hmac
 import os
 import threading
@@ -8,21 +8,19 @@ from collections import defaultdict, deque
 
 from flask import Flask, jsonify, render_template, request
 
-from agent_core import run_agent
+import agent_core
+from gemini import GeminiError
 from tools import assert_public_url
-from tracker import run_prompt
-
-import anthropic
 
 app = Flask(__name__)
 
 ACCESS_CODE = os.environ.get("APP_PASSWORD", "")
-MAX_RUNNING = 3            # concurrent jobs
-MAX_JOBS_PER_HOUR = 15     # per IP
-JOB_TTL = 60 * 60          # keep finished jobs for an hour
+MAX_RUNNING = 2            # concurrent jobs (free Gemini tier is rate limited)
+MAX_JOBS_PER_HOUR = 10     # per IP
+JOB_TTL = 60 * 60
 
 JOBS, LOCK = {}, threading.Lock()
-RECENT = defaultdict(deque)  # ip -> timestamps
+RECENT = defaultdict(deque)
 
 
 def clean_jobs():
@@ -48,62 +46,44 @@ def norm_url(u):
     return u
 
 
-def tracking_markdown(brand, domain, results):
-    n = len(results)
-    mention = sum(r["brand_mentioned"] for r in results)
-    cited = sum(r["domain_cited"] for r in results)
-    lines = [f"# AI visibility: {brand}", "",
-             f"- Brand mentioned in **{mention}/{n}** answers ({mention / n:.0%})",
-             f"- {domain} cited as a source in **{cited}/{n}** answers ({cited / n:.0%})", "",
-             "| Question | Mentioned | Cited |", "|---|---|---|"]
-    for r in results:
-        lines.append(f"| {r['prompt']} | {'yes' if r['brand_mentioned'] else 'no'} | {'yes' if r['domain_cited'] else 'no'} |")
-    lines += ["", "## Sources the AI used", ""]
-    seen = []
-    for r in results:
-        for s in r["sources"]:
-            if s not in seen:
-                seen.append(s)
-    lines += [f"- {s}" for s in seen[:15]] or ["- (none)"]
-    lines += ["", "_Re-run weekly to see the trend. AI answers vary, so treat single runs as a snapshot._"]
-    return "\n".join(lines)
-
-
 def worker(jid, mode, p):
     job = JOBS[jid]
     note = lambda m: job["progress"].append(m)
     try:
-        if mode == "track":
-            results = []
-            client = anthropic.Anthropic()
-            for i, q in enumerate(p["prompts"], 1):
-                note(f"Asking AI question {i} of {len(p['prompts'])}...")
-                results.append(run_prompt(client, q, p["brand"], p["domain"]))
-            job["report"] = tracking_markdown(p["brand"], p["domain"], results)
+        client = p.get("client", "")
+        if mode == "audit":
+            out = agent_core.run_audit(p["url"], client, note)
+        elif mode == "rewrite":
+            out = agent_core.run_rewrite(p["url"], client, note)
+        elif mode == "research":
+            out = agent_core.run_research(p["business"], p["url"], client, note)
+        elif mode == "launch":
+            out = agent_core.run_launch(p["business"], client, note)
         else:
-            job["report"] = run_agent(mode, progress=note, **p["fmt"])
-        job["status"] = "done"
+            out = agent_core.run_track(p["brand"], p["domain"], p["prompts"], client, note)
+        job["report"], job["scores"], job["status"] = out["report"], out["scores"], "done"
+    except (GeminiError, ValueError) as e:
+        job["status"], job["error"] = "error", str(e)[:300]
     except Exception as e:
-        job["status"] = "error"
-        job["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+        job["status"], job["error"] = "error", f"Something went wrong ({type(e).__name__}). Please try again."
 
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", brand=agent_core.BRAND)
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "configured": bool(ACCESS_CODE and os.environ.get("ANTHROPIC_API_KEY"))}
+    return {"ok": True, "configured": bool(ACCESS_CODE and os.environ.get("GEMINI_API_KEY"))}
 
 
 @app.post("/api/start")
 def start():
     if not ACCESS_CODE:
         return jsonify(error="Server not configured: set APP_PASSWORD."), 503
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return jsonify(error="Server not configured: set ANTHROPIC_API_KEY."), 503
+    if not os.environ.get("GEMINI_API_KEY"):
+        return jsonify(error="Server not configured: set GEMINI_API_KEY."), 503
     if not authorized():
         return jsonify(error="Wrong access code."), 401
 
@@ -121,29 +101,31 @@ def start():
 
         data = request.get_json(silent=True) or {}
         mode = data.get("mode")
+        client = (data.get("client") or "").strip()[:100]
         try:
             if mode in ("audit", "rewrite"):
-                p = {"fmt": {"url": norm_url(data.get("url"))}}
-            elif mode == "research":
-                business = (data.get("business") or "").strip()[:300]
-                if len(business) < 5:
-                    raise ValueError("Describe the business (what it does and where)")
-                url = norm_url(data["url"]) if (data.get("url") or "").strip() else "(none provided)"
-                p = {"fmt": {"business": business, "url": url}}
+                p = {"url": norm_url(data.get("url"))}
+            elif mode in ("research", "launch"):
+                business = (data.get("business") or "").strip()[:400]
+                if len(business) < 8:
+                    raise ValueError("Describe the business: what it does and where")
+                url = norm_url(data["url"]) if (data.get("url") or "").strip() and mode == "research" else "(none yet)"
+                p = {"business": business, "url": url}
             elif mode == "track":
                 brand = (data.get("brand") or "").strip()[:100]
                 domain = (data.get("domain") or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0][:100]
                 prompts = [l.strip()[:200] for l in (data.get("prompts") or "").splitlines() if l.strip()][:8]
-                if not brand or not domain or not prompts:
-                    raise ValueError("Enter brand name, domain, and at least one question")
+                if not brand or not prompts:
+                    raise ValueError("Enter the brand name and at least one question")
                 p = {"brand": brand, "domain": domain, "prompts": prompts}
             else:
                 raise ValueError("Unknown mode")
         except ValueError as e:
             return jsonify(error=str(e)), 400
+        p["client"] = client
 
         jid = uuid.uuid4().hex
-        JOBS[jid] = {"status": "running", "progress": [], "report": None, "error": None, "created": now}
+        JOBS[jid] = {"status": "running", "progress": [], "report": None, "scores": None, "error": None, "created": now}
         q.append(now)
 
     threading.Thread(target=worker, args=(jid, mode, p), daemon=True).start()
@@ -157,7 +139,8 @@ def status(jid):
     job = JOBS.get(jid)
     if not job:
         return jsonify(error="Job not found or expired."), 404
-    return jsonify(status=job["status"], progress=job["progress"][-6:], report=job["report"], error=job["error"])
+    return jsonify(status=job["status"], progress=job["progress"][-6:], report=job["report"],
+                   scores=job["scores"], error=job["error"])
 
 
 if __name__ == "__main__":

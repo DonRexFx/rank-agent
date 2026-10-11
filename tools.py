@@ -3,6 +3,7 @@ import ipaddress
 import json
 import re
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -106,7 +107,14 @@ def analyze_html(html, url, status=200, elapsed=None):
     if "FAQPage" not in schema_types and not any("?" in h for _, h in headings):
         issues.append("No question-style headings or FAQ schema (helps AI answer engines)")
 
+    phones = sorted({a["href"][4:].strip() for a in soup.find_all("a", href=True) if a["href"].lower().startswith("tel:")})
+    emails = sorted({a["href"][7:].split("?")[0].strip() for a in soup.find_all("a", href=True) if a["href"].lower().startswith("mailto:")})
+    question_heads = sum(1 for _, h in headings if "?" in h or re.match(r"(?i)(how|what|why|when|where|who|can|do|does|is|are|which)\b", h))
+
     return {
+        "has_viewport": bool(meta(name="viewport")), "has_og": bool(meta(prop="og:title")),
+        "og_site_name": meta(prop="og:site_name"), "h1_count": len(h1s),
+        "question_headings": question_heads, "phones": phones[:3], "emails": emails[:3],
         "url": url, "status": status, "response_seconds": elapsed,
         "title": title, "meta_description": desc,
         "canonical": canonical.get("href") if canonical else None,
@@ -167,6 +175,61 @@ def check_site_files(url):
         except Exception as e:
             out[f"{name}_error"] = str(e)
     return out
+
+
+PRIORITY = ("about", "contact", "service", "product", "pricing", "price", "shop", "menu", "blog", "faq", "location", "book", "treatment")
+SKIP_EXT = re.compile(r"\.(jpg|jpeg|png|gif|pdf|zip|css|js|svg|webp|mp4|xml)(\?|$)", re.I)
+
+
+def _sitemap_urls(base, host):
+    try:
+        r = _get(base + "/sitemap.xml")
+        if r.status_code != 200:
+            return []
+        locs = re.findall(r"<loc>\s*(.*?)\s*</loc>", r.text, re.I | re.S)
+        if locs and all(l.endswith(".xml") for l in locs[:3]):
+            r2 = _get(locs[0])
+            locs = re.findall(r"<loc>\s*(.*?)\s*</loc>", r2.text, re.I | re.S) if r2.status_code == 200 else []
+        return [l for l in locs if urlparse(l).netloc == host]
+    except Exception:
+        return []
+
+
+def crawl_site(url, max_pages=8):
+    """Fetch the homepage plus the most important internal pages. Returns {base, pages, files}."""
+    r = _get(url)
+    final = r.url
+    home = analyze_html(r.text, final, r.status_code, round(r.elapsed.total_seconds(), 2))
+    p = urlparse(final)
+    base = f"{p.scheme}://{p.netloc}"
+    cands = _sitemap_urls(base, p.netloc) + home["_internal_urls"]
+
+    def pri(u):
+        return 0 if any(k in urlparse(u).path.lower() for k in PRIORITY) else 1
+
+    seen, targets = {final.rstrip("/")}, []
+    for u in sorted(dict.fromkeys(cands), key=pri):
+        k = u.rstrip("/")
+        if k in seen or SKIP_EXT.search(u):
+            continue
+        seen.add(k)
+        targets.append(u)
+    targets = targets[: max_pages - 1]
+
+    def one(u):
+        try:
+            rr = _get(u)
+            return analyze_html(rr.text, rr.url, rr.status_code, round(rr.elapsed.total_seconds(), 2))
+        except Exception:
+            return None
+
+    pages = [home]
+    if targets:
+        with ThreadPoolExecutor(4) as ex:
+            pages += [x for x in ex.map(one, targets) if x]
+    for pg in pages:
+        pg.pop("_internal_urls", None)
+    return {"base": base, "pages": pages, "files": check_site_files(final)}
 
 
 TOOL_FUNCS = {

@@ -1,30 +1,44 @@
-# Rank Agent (web app)
+# Rank Agent (Gemini free-tier edition)
 
-Mobile-friendly web app that audits a business site for Google and AI-search readiness, researches keywords and AI questions, rewrites pages, and tracks whether AI answers mention or cite the brand.
+A phone-friendly web app that produces client-ready reports to help a business get found on Google and in AI answers (ChatGPT, Gemini, Perplexity, Google AI Overviews). Runs on free services: Google Gemini API free tier + Render free hosting.
 
-## Deploy free on Render (works from a phone browser)
-1. Create a GitHub repo and upload these files, keeping this layout (`templates/index.html` must stay inside a `templates` folder; on GitHub mobile use Add file > Create new file and type `templates/index.html` as the name, then paste the contents).
-2. On render.com: New > Blueprint (or Web Service) > pick the repo. It reads `render.yaml`.
-3. When asked, set two environment variables:
-   - `ANTHROPIC_API_KEY`: your key from console.anthropic.com
-   - `APP_PASSWORD`: an access code you choose (people need it to use the app)
-4. Open the URL Render gives you. Enter your access code and run an audit.
+## The five tools
+| Tab | For | You get |
+|---|---|---|
+| **Launch** | Businesses with NO website | Google Business Profile checklist, website plan, ready-to-paste copy, 12 customer questions, review plan, 30-day calendar |
+| **Audit** | Businesses with a website | Reads up to 8 pages, scores 5 areas out of 100, top 10 fixes, page-by-page rewrites, 30-day plan, plus a ready `llms.txt` and business schema code |
+| **Research** | Anyone | Keywords, questions people ask AI, competitors, 8-page content plan (uses Google Search) |
+| **Rewrite** | One page | Titles, meta descriptions, headings, AI-quotable summary, FAQ and schema code |
+| **Track** | Proving results | Asks AI real customer questions, shows if the brand is mentioned and which competitor sites the AI relies on |
 
-Notes: the free tier sleeps when idle (first load can take about 30 seconds). Jobs are held in memory, so keep the single worker setting.
+Scores are calculated by fixed rules (not by AI), so they are consistent and you can re-run them later to show progress. Tap **Save as PDF** on any report to send it to a client.
 
-## Run on a computer
-```
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY=... APP_PASSWORD=choose-a-code
-python app.py        # http://localhost:5000
-python test_app.py   # offline tests, no API key needed
-```
+## 1. Get a free Gemini key
+Go to https://aistudio.google.com/apikey, sign in with Google, create a key. No card needed for the free tier. Free tiers have daily and per-minute limits that Google can change; if you hit them the app shows a friendly message, and you can try again later.
+
+## 2. Update your GitHub repo (from your phone)
+Upload these files into the repo root, using the same names (GitHub replaces the old ones):
+`app.py, agent_core.py, tools.py, tracker.py, requirements.txt, render.yaml, README.md, test_app.py`
+and the NEW files: `gemini.py, scoring.py`.
+
+Then open the `templates` folder in the repo, tap **Add file > Upload files**, and upload the new `index.html` to replace the old one. `Procfile` stays as it is. Tap **Commit changes** each time.
+
+## 3. Deploy on Render
+Render > New > Blueprint (or Web Service) > pick the repo. Set these environment variables:
+- `GEMINI_API_KEY`: the key from step 1
+- `APP_PASSWORD`: an access code you choose
+- `REPORT_BRAND`: your business name, printed on every report (optional)
+- `GEMINI_MODEL`: optional. Defaults to `gemini-2.5-flash`. If Google retires that name, set the current Flash model name from AI Studio.
+
+If you already deployed, just change the variables (remove `ANTHROPIC_API_KEY`, add the ones above) and Render redeploys when you commit.
 
 ## Safety built in
-- Access code required; hourly per-IP limit; max 3 concurrent jobs.
-- The server refuses private, loopback and internal addresses (including through redirects), so it can't be used to probe networks.
-- Web page text is treated as data, not instructions, in the agent prompt.
-- Each run uses your Anthropic credits (audits and research take several model calls), so keep the access code private.
+Access code on every request, per-IP hourly limit, max 2 concurrent jobs, internal/private network addresses blocked (including via redirects), web text treated as data rather than instructions, and the AI is told never to invent facts (it marks unknowns `[CONFIRM: ...]`).
 
-## Files
-`app.py` API and jobs, `agent_core.py` Claude tool loop, `tools.py` site analysis, `tracker.py` AI-visibility checks, `templates/index.html` the UI.
+## Running on a computer
+```
+pip install -r requirements.txt
+export GEMINI_API_KEY=... APP_PASSWORD=choose-a-code
+python app.py          # http://localhost:5000
+python test_app.py     # offline tests, no key needed
+```
