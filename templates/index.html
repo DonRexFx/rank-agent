@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
-<title>Rank Agent</title>
+<title>{{ brand }}</title>
 <style>
   :root{
     --bg:#f6f7f9; --card:#fff; --text:#16191d; --muted:#5d6672; --line:#e2e6ea;
@@ -23,8 +23,8 @@
   h1{font-size:1.35rem;margin:4px 0 2px}
   .sub{color:var(--muted);margin:0 0 16px;font-size:.95rem}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
-  .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--code);padding:4px;border-radius:12px;margin-bottom:14px}
-  .tabs button{border:0;background:transparent;color:var(--muted);padding:10px 4px;border-radius:9px;font:inherit;font-size:.9rem;font-weight:600;min-height:44px}
+  .tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;background:var(--code);padding:4px;border-radius:12px;margin-bottom:14px}
+  .tabs button{border:0;background:transparent;color:var(--muted);padding:10px 2px;border-radius:9px;font:inherit;font-size:.78rem;font-weight:600;min-height:44px}
   .tabs button[aria-selected="true"]{background:var(--card);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.15)}
   label{display:block;font-size:.85rem;font-weight:600;margin:12px 0 4px}
   label:first-child{margin-top:0}
@@ -55,12 +55,23 @@
   #report code{background:var(--code);padding:1px 5px;border-radius:5px;font-size:.88em}
   #report pre code{padding:0;background:none}
   #report a{color:var(--brand)}
+  #scores{display:grid;gap:8px;margin:4px 0 16px}
+  .big{display:flex;align-items:baseline;gap:8px}
+  .big b{font-size:2.6rem;line-height:1}
+  .big span{color:var(--muted)}
+  .bar{display:grid;grid-template-columns:110px 1fr 40px;align-items:center;gap:8px;font-size:.88rem}
+  .bar i{display:block;height:10px;border-radius:6px;background:var(--code);overflow:hidden}
+  .bar i s{display:block;height:100%;background:var(--brand)}
+  @media print{
+    body{background:#fff;color:#000;padding:0} .tabs,#form,#run,.row,.sub,h1,.card:first-of-type{display:none!important}
+    #out{border:0;padding:0} #report a{color:#000}
+  }
   details summary{cursor:pointer;color:var(--muted);font-size:.9rem;min-height:32px}
 </style>
 </head>
 <body>
 <main>
-  <h1>Rank Agent</h1>
+  <h1>{{ brand }}</h1>
   <p class="sub">Rank higher on Google and get cited by AI search.</p>
 
   <div class="card">
@@ -69,14 +80,20 @@
   </div>
 
   <div class="tabs" role="tablist" aria-label="Tools">
-    <button role="tab" aria-selected="true" data-tab="audit">Audit</button>
+    <button role="tab" aria-selected="true" data-tab="launch">Launch</button>
+    <button role="tab" aria-selected="false" data-tab="audit">Audit</button>
     <button role="tab" aria-selected="false" data-tab="research">Research</button>
     <button role="tab" aria-selected="false" data-tab="rewrite">Rewrite</button>
     <button role="tab" aria-selected="false" data-tab="track">Track</button>
   </div>
 
   <form id="form" class="card" novalidate>
-    <div data-for="audit">
+    <div data-for="launch">
+      <label for="l-biz">Business (no website yet)</label>
+      <textarea id="l-biz" placeholder="Bakery in Yaba, Lagos. Custom cakes, small chops, delivery across the mainland."></textarea>
+      <p class="hint">Gets a Google Business Profile checklist, website plan, ready-to-paste copy, and a 30-day launch calendar.</p>
+    </div>
+    <div data-for="audit" class="hidden">
       <label for="a-url">Website URL</label>
       <input id="a-url" type="url" inputmode="url" autocapitalize="none" placeholder="yourbusiness.com">
       <p class="hint">Checks technical SEO, schema, AI-bot access, llms.txt, and key pages. Takes 1 to 2 minutes.</p>
@@ -102,7 +119,9 @@
       <textarea id="t-prompts" placeholder="Best family dentist in Lagos?&#10;Who does teeth whitening near Ikeja?"></textarea>
       <p class="hint">Asks an AI with live web search and checks whether you are mentioned or cited.</p>
     </div>
-    <button id="go" class="primary" type="submit">Run audit</button>
+    <label for="client">Prepared for (optional, shown on the report)</label>
+    <input id="client" placeholder="Client or business name">
+    <button id="go" class="primary" type="submit">Create launch plan</button>
   </form>
 
   <div id="run" class="card hidden">
@@ -113,7 +132,9 @@
     <div class="row">
       <button class="ghost" id="copy" type="button">Copy</button>
       <button class="ghost" id="dl" type="button">Download</button>
+      <button class="ghost" id="pdf" type="button">Save as PDF</button>
     </div>
+    <div id="scores" class="hidden"></div>
     <div id="report"></div>
   </div>
 </main>
@@ -123,8 +144,8 @@
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var tab = "audit", timer = null, lastMd = "";
-  var LABEL = { audit: "Run audit", research: "Run research", rewrite: "Rewrite page", track: "Check AI visibility" };
+  var tab = "launch", timer = null, lastMd = "";
+  var LABEL = { launch: "Create launch plan", audit: "Run audit", research: "Run research", rewrite: "Rewrite page", track: "Check AI visibility" };
 
   function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; }
   $("code").value = store("ra_code") || "";
@@ -145,10 +166,14 @@
   function headers() { return { "Content-Type": "application/json", "X-Access-Code": $("code").value }; }
 
   function payload() {
-    if (tab === "audit") return { mode: tab, url: $("a-url").value };
-    if (tab === "rewrite") return { mode: tab, url: $("w-url").value };
-    if (tab === "research") return { mode: tab, business: $("r-biz").value, url: $("r-url").value };
-    return { mode: tab, brand: $("t-brand").value, domain: $("t-domain").value, prompts: $("t-prompts").value };
+    var c = $("client").value, p;
+    if (tab === "launch") p = { mode: tab, business: $("l-biz").value };
+    else if (tab === "audit") p = { mode: tab, url: $("a-url").value };
+    else if (tab === "rewrite") p = { mode: tab, url: $("w-url").value };
+    else if (tab === "research") p = { mode: tab, business: $("r-biz").value, url: $("r-url").value };
+    else p = { mode: tab, brand: $("t-brand").value, domain: $("t-domain").value, prompts: $("t-prompts").value };
+    p.client = c;
+    return p;
   }
 
   $("form").addEventListener("submit", function (e) {
@@ -185,15 +210,27 @@
             clearInterval(timer);
             $("go").disabled = false;
             status("Done.");
-            show(j.report || "(empty report)");
+            show(j.report || "(empty report)", j.scores);
           }
         })
         .catch(function () { if (++misses > 5) fail("Connection lost. Please run it again."); });
     }, 2500);
   }
 
-  function show(md) {
+  function showScores(sc) {
+    var el = $("scores");
+    if (!sc) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+    var h = '<div class="big"><b>' + sc.overall + '</b><span>/ 100 &middot; ' + esc(sc.grade) + "</span></div>";
+    Object.keys(sc.categories).forEach(function (k) {
+      var v = sc.categories[k];
+      h += '<div class="bar"><span>' + esc(k) + "</span><i><s style='width:" + v + "%'></s></i><b>" + v + "</b></div>";
+    });
+    el.innerHTML = h; el.classList.remove("hidden");
+  }
+
+  function show(md, scores) {
     lastMd = md;
+    showScores(scores);
     var html = window.marked ? marked.parse(md) : "<pre>" + esc(md) + "</pre>";
     $("report").innerHTML = window.DOMPurify ? DOMPurify.sanitize(html) : "<pre>" + esc(md) + "</pre>";
     $("out").classList.remove("hidden");
@@ -206,6 +243,8 @@
       .then(function () { b.textContent = "Copied"; }, function () { b.textContent = "Copy failed"; })
       .then(function () { setTimeout(function () { b.textContent = "Copy"; }, 1500); });
   });
+
+  $("pdf").addEventListener("click", function () { window.print(); });
 
   $("dl").addEventListener("click", function () {
     var a = document.createElement("a");
