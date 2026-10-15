@@ -9,8 +9,10 @@ from collections import defaultdict, deque
 from flask import Flask, jsonify, render_template, request
 
 import agent_core
+import budget
 from gemini import GeminiError
 from tools import assert_public_url
+from tracker import normalize_domain
 
 app = Flask(__name__)
 
@@ -49,6 +51,7 @@ def norm_url(u):
 def worker(jid, mode, p):
     job = JOBS[jid]
     note = lambda m: job["progress"].append(m)
+    budget.BUDGET.begin_run()  # per-run cap on AI calls, retries included
     try:
         client = p.get("client", "")
         if mode == "audit":
@@ -61,11 +64,14 @@ def worker(jid, mode, p):
             out = agent_core.run_launch(p["business"], client, note)
         else:
             out = agent_core.run_track(p["brand"], p["domain"], p["prompts"], client, note)
+        job["partial"], job["warnings"] = bool(out.get("partial")), list(out.get("warnings") or [])
         job["report"], job["scores"], job["status"] = out["report"], out["scores"], "done"
     except (GeminiError, ValueError) as e:
-        job["status"], job["error"] = "error", str(e)[:300]
+        job["status"], job["error"] = "error", str(e)[:500]
     except Exception as e:
         job["status"], job["error"] = "error", f"Something went wrong ({type(e).__name__}). Please try again."
+    finally:
+        budget.BUDGET.end_run()
 
 
 @app.get("/")
@@ -86,6 +92,9 @@ def start():
         return jsonify(error="Server not configured: set GEMINI_API_KEY."), 503
     if not authorized():
         return jsonify(error="Wrong access code."), 401
+
+    if budget.BUDGET.remaining() == 0:
+        return jsonify(error="This server's daily AI call budget is used up. It resets at 00:00 UTC."), 429
 
     ip = (request.headers.get("X-Forwarded-For", request.remote_addr) or "").split(",")[0].strip()
     now = time.time()
@@ -113,10 +122,12 @@ def start():
                 p = {"business": business, "url": url}
             elif mode == "track":
                 brand = (data.get("brand") or "").strip()[:100]
-                domain = (data.get("domain") or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0][:100]
+                domain = normalize_domain((data.get("domain") or "")[:300])  # raises ValueError if invalid; blank is allowed
                 prompts = [l.strip()[:200] for l in (data.get("prompts") or "").splitlines() if l.strip()][:8]
                 if not brand or not prompts:
                     raise ValueError("Enter the brand name and at least one question")
+                if len(brand) < 3:
+                    raise ValueError("The brand name is too short to match reliably in AI answers")
                 p = {"brand": brand, "domain": domain, "prompts": prompts}
             else:
                 raise ValueError("Unknown mode")
@@ -125,7 +136,8 @@ def start():
         p["client"] = client
 
         jid = uuid.uuid4().hex
-        JOBS[jid] = {"status": "running", "progress": [], "report": None, "scores": None, "error": None, "created": now}
+        JOBS[jid] = {"status": "running", "progress": [], "report": None, "scores": None, "error": None,
+                       "partial": False, "warnings": [], "created": now}
         q.append(now)
 
     threading.Thread(target=worker, args=(jid, mode, p), daemon=True).start()
@@ -140,7 +152,7 @@ def status(jid):
     if not job:
         return jsonify(error="Job not found or expired."), 404
     return jsonify(status=job["status"], progress=job["progress"][-6:], report=job["report"],
-                   scores=job["scores"], error=job["error"])
+                   scores=job["scores"], error=job["error"], partial=job["partial"], warnings=job["warnings"])
 
 
 if __name__ == "__main__":

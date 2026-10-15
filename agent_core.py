@@ -134,8 +134,14 @@ Use [CONFIRM: ...] for any fact only the owner knows."""
 
 
 def run_track(brand, domain, questions, client="", progress=lambda m: None):
-    results = track(questions, brand, domain, progress=progress)
-    return {"report": header("AI Visibility Report", brand, client) + "\n" + tracking_markdown(brand, domain, results), "scores": None}
+    results, info = track(questions, brand, domain, progress=progress)
+    unverified = [r for r in results if r["status"] == "unverified"]
+    if len(unverified) == len(results) and info["first_error"]:
+        # Nothing could be checked, so there is no data to report: show the real reason instead.
+        raise info["first_error"]
+    report = header("AI Visibility Report", brand, client) + "\n" + tracking_markdown(brand, domain, results)
+    warnings = [f"{len(unverified)} of {len(results)} questions could not be verified."] if unverified else []
+    return {"report": report, "scores": None, "partial": bool(unverified), "warnings": warnings}
 
 
 def _sources_md(sources):

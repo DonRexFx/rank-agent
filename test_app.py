@@ -7,6 +7,7 @@ import time
 
 os.environ["APP_PASSWORD"] = "secret123"
 os.environ["GEMINI_API_KEY"] = "test-key"
+os.environ["CACHE_TTL_SECONDS"] = "0"  # no saved answers between test runs
 
 import agent_core  # noqa: E402
 import app as webapp  # noqa: E402
@@ -54,10 +55,12 @@ CALLS = []
 
 def fake_generate(prompt, system=None, search=False, **kw):
     CALLS.append({"search": search, "prompt": prompt})
-    return {"text": "## Executive summary\nStub advice.", "sources": [{"title": "rival.com", "uri": "https://x/redirect1"}]}
+    return {"text": "## Executive summary\nStub advice.", "sources": [{"title": "rival.com", "uri": "https://x/redirect1"}],
+            "grounded": True, "search_queries": ["q"], "model": "stub"}
 
 
 gemini.generate = agent_core.generate = tracker.generate = fake_generate
+_REAL_SLEEP = time.sleep  # keep a real sleep for polling; the line below disables sleeping program-wide
 tracker.time.sleep = lambda s: None
 
 
@@ -86,9 +89,9 @@ check("audit report has score, files, client", "Overall score" in out["report"] 
 check("audit made exactly one model call", len(CALLS) == 1 and CALLS[0]["search"] is False)
 
 # ---- tracker ----
-res = tracker.track(["Best cake in Lagos?", "Who delivers cakes?"], "Sweet Crumbs", "crumbs.test")
+res, _info = tracker.track(["Best cake in Lagos?", "Who delivers cakes?"], "Sweet Crumbs", "crumbs.test", pause=0)
 md = tracker.tracking_markdown("Sweet Crumbs", "crumbs.test", res)
-check("tracker lists rival sources", "rival.com" in md and "0 of 2" in md)
+check("tracker lists rival sources", "rival.com" in md and "0 of 2 verified" in md)
 
 # ---- API ----
 c = webapp.app.test_client()
@@ -100,7 +103,7 @@ def wait(jid):
         j = c.get(f"/api/status/{jid}", headers=H).get_json()
         if j["status"] != "running":
             return j
-        time.sleep(0.1)
+        _REAL_SLEEP(0.1)
     raise AssertionError("job timed out")
 
 
